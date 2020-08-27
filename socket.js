@@ -1,0 +1,71 @@
+// 웹 소켓 로직이 들어있는 파일
+
+const SocketIO = require('socket.io');
+const axios = require('axios');
+const session = require('express-session');
+
+module.exports = (server, app, sessionMiddleware) => { 
+    const io = SocketIO(server, { path: '/socket.io' });
+
+    app.set('io', io); // 라우터에서 io 객체 사용 가능해짐
+    const room = io.of('/room'); // of: Socket.IO에 네임스페이스 부여
+    const chat = io.of('/chat');
+    // room과 chat 두 개의 네임스페이스 생성함
+
+    io.use((socket, next) => { // session 추가 시 추가함
+        sessionMiddleware(socket.request, socket.request.res, next);
+    });
+
+    room.on('connection', (socket) => { // 웹소켓 연결 시
+        console.log('room 네임스페이스에 접속');
+        socket.on('disconnect', () => {
+         console.log('room 네임스페이스 접속 해제');
+    });
+  });
+
+    chat.on('connection', (socket) => {
+        console.log('chat 네임스페이스에 접속');
+        const req = socket.request;
+        const { headers: { referer } } = req;
+        const roomId = referer
+         .split('/')[referer.split('/').length - 1]
+         .replace(/\?.+/, '');
+         socket.join(roomId);
+
+         // 입장 & 퇴장 문구 추가
+         socket.to(roomId).emit('join', {
+             user: 'system',
+             chat: `${req.session.color}님이 입장하셨습니다.`,
+         });
+
+        socket.on('disconnect', () => {
+         console.log('chat 네임스페이스 접속 해제');
+         socket.leave(roomId);
+
+        const currentRoom = socket.adapter.rooms[roomId];
+        // 참여 중인 소켓 정보 담겨있음
+        
+        const userCount = currentRoom ? currentRoom.length : 0; 
+        if (userCount === 0) { // 유저가 0명이면 방 삭제
+        const signedCookie = cookie.sign( req.signedCookies['connect.sid'], process.env.COOKIE_SECRET );
+        const connectSID = `${signedCookie}`;
+        axios.delete(`http://localhost:8005/room/${roomId}`, {
+          headers: {
+            Cookie: `connect.sid=s%3A${connectSID}`
+          }
+        })
+          .then(() => {
+            console.log('방 제거 요청 성공');
+          })
+          .catch((error) => {
+            console.error(error);
+          });
+      } else {
+        socket.to(roomId).emit('exit', {
+          user: 'system',
+          chat: `${req.session.color}님이 퇴장하셨습니다.`,
+        });
+      }
+    });
+  });
+};
